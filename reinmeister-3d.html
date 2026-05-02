@@ -571,90 +571,101 @@ scene.add(topPt);
 
 /* ═══════════════════════════════════════════════════════════════
    LABEL TEXTURE BUILDER  (2048 × 1024 canvas)
-   Layout (X axis):
-     0   – 260  : left vertical text (product line + subtitle)
-     260 – 600  : "Reinmeister®" brand hero, rotated 90° CCW
-     600 – 620  : thin vertical divider
-     620 – 950  : benefits bullets
-     950 – 2048 : chrome hero number + MADE IN GERMANY footer
+
+   The label mesh is rotated Math.PI around Y so the texture seam
+   faces the BACK of the bottle. With that rotation:
+     canvas x = 1024  →  front face (directly facing camera)
+     canvas x = 512   →  viewer's left side
+     canvas x = 1536  →  viewer's right side
+     canvas x = 0/2048→  back (seam, hidden)
+
+   Layout centered around x = 1024:
+     x ≈ 580         : product line + subtitle (vertical, viewer's left edge)
+     x ≈ 820         : "Reinmeister®" hero (vertical 160 px, viewer's left-centre)
+     x ≈ 1040        : thin divider
+     x ≈ 1060–1450   : benefits bullets (viewer's right)
+     x = 1024, lower : giant chrome number (drawn first, acts as background)
+     x = 1024, bottom: MADE IN GERMANY
    ═══════════════════════════════════════════════════════════════ */
 function buildLabel(cfg) {
   const W = 2048, H = 1024;
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   const cx = cv.getContext('2d');
-  cx.clearRect(0, 0, W, H);   // fully transparent base
+  cx.clearRect(0, 0, W, H);
 
-  /* LEFT: vertical product-line / subtitle */
-  cx.save();
-  cx.translate(120, H / 2);
-  cx.rotate(-Math.PI / 2);
-  cx.textAlign = 'center'; cx.textBaseline = 'alphabetic';
-  cx.font = 'italic 28px "Helvetica Neue",Helvetica,Arial,sans-serif';
-  cx.fillStyle = '#fff';
-  cx.fillText(cfg.productLine, 0, -18);
-  cx.strokeStyle = 'rgba(255,255,255,.35)'; cx.lineWidth = 1;
-  cx.beginPath(); cx.moveTo(-180, -6); cx.lineTo(180, -6); cx.stroke();
-  cx.font = '28px "Helvetica Neue",Helvetica,Arial,sans-serif';
-  cx.fillText(cfg.subtitle, 0, 22);
-  cx.restore();
-
-  /* CENTER: "Reinmeister®" brand hero */
-  cx.save();
-  cx.translate(420, H / 2 + 20);
-  cx.rotate(-Math.PI / 2);
-  cx.textAlign = 'center'; cx.textBaseline = 'alphabetic';
-  cx.font = 'bold 180px "Helvetica Neue",Helvetica,Arial,sans-serif';
-  cx.fillStyle = '#fff';
-  cx.fillText('Reinmeister', 0, 0);
-  const hw = cx.measureText('Reinmeister').width / 2;
-  cx.font = 'bold 58px "Helvetica Neue",Helvetica,Arial,sans-serif';
-  cx.fillText('®', hw + 28, -118);
-  cx.restore();
-
-  /* DIVIDER */
-  cx.strokeStyle = 'rgba(255,255,255,.6)'; cx.lineWidth = 1.5;
-  cx.beginPath(); cx.moveTo(608, H*.1); cx.lineTo(608, H*.9); cx.stroke();
-
-  /* BENEFITS */
-  cx.font = '32px "Helvetica Neue",Helvetica,Arial,sans-serif';
-  cx.textAlign = 'left'; cx.textBaseline = 'middle';
-  const bx = 638, sy = H / 2 - 54, ls = 54;
-  cfg.benefits.forEach((line, i) => {
-    const y = sy + i * ls;
-    cx.beginPath(); cx.arc(bx + 8, y, 4, 0, Math.PI * 2);
-    cx.fillStyle = 'rgba(255,255,255,.7)'; cx.fill();
-    cx.fillStyle = '#fff';
-    cx.fillText(line, bx + 24, y);
-  });
-
-  /* HERO NUMBER — chrome gradient, right half, no overlap with brand text */
-  const nx = 1520, ny = H * .68;
-  const ng = cx.createLinearGradient(nx, ny - 240, nx, ny + 260);
+  /* ── 1. HERO NUMBER (drawn first → acts as background layer) ── */
+  const nx = 1024, ny = H * 0.76;
+  const ng = cx.createLinearGradient(nx, ny - 260, nx, ny + 260);
   ng.addColorStop(0,   '#ffffff');
-  ng.addColorStop(0.4, '#cccccc');
-  ng.addColorStop(1,   '#888888');
+  ng.addColorStop(0.35,'#d8d8d8');
+  ng.addColorStop(1,   '#808080');
   cx.save();
-  cx.font = 'bold 580px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.font = 'bold 560px "Helvetica Neue",Helvetica,Arial,sans-serif';
   cx.textAlign = 'center'; cx.textBaseline = 'middle';
-  cx.shadowColor = 'rgba(0,0,0,.4)'; cx.shadowOffsetY = 8; cx.shadowBlur = 12;
+  cx.shadowColor = 'rgba(0,0,0,0.45)'; cx.shadowOffsetY = 10; cx.shadowBlur = 18;
   cx.fillStyle = ng;
   cx.fillText(cfg.heroNumber, nx, ny);
   cx.restore();
 
-  /* BOTTOM: MADE IN GERMANY + German flag */
-  const by = H - 38;
-  cx.font = 'bold 24px "Helvetica Neue",Helvetica,Arial,sans-serif';
-  cx.textAlign = 'left'; cx.textBaseline = 'middle'; cx.fillStyle = '#fff';
+  /* ── 2. "Reinmeister®" brand hero — vertical, 160 px bold ── */
+  cx.save();
+  cx.translate(820, H / 2 + 18);
+  cx.rotate(-Math.PI / 2);
+  cx.textAlign = 'center'; cx.textBaseline = 'alphabetic';
+  cx.font = 'bold 160px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.fillStyle = '#ffffff';
+  cx.fillText('Reinmeister', 0, 0);
+  // ® superscript at the top end of the rotated word
+  const hw = cx.measureText('Reinmeister').width / 2;
+  cx.font = 'bold 54px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.fillText('®', hw + 24, -106);
+  cx.restore();
+
+  /* ── 3. Product line + subtitle (vertical, viewer's far left) ── */
+  cx.save();
+  cx.translate(580, H / 2);
+  cx.rotate(-Math.PI / 2);
+  cx.textAlign = 'center'; cx.textBaseline = 'alphabetic';
+  cx.font = 'italic 26px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.fillStyle = '#ffffff';
+  cx.fillText(cfg.productLine, 0, -16);
+  cx.strokeStyle = 'rgba(255,255,255,0.35)'; cx.lineWidth = 1;
+  cx.beginPath(); cx.moveTo(-160, -5); cx.lineTo(160, -5); cx.stroke();
+  cx.font = '26px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.fillText(cfg.subtitle, 0, 20);
+  cx.restore();
+
+  /* ── 4. Thin vertical divider ── */
+  cx.strokeStyle = 'rgba(255,255,255,0.55)'; cx.lineWidth = 1.5;
+  cx.beginPath(); cx.moveTo(1042, H * 0.1); cx.lineTo(1042, H * 0.9); cx.stroke();
+
+  /* ── 5. Benefits bullets ── */
+  cx.font = '30px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.textAlign = 'left'; cx.textBaseline = 'middle'; cx.fillStyle = '#ffffff';
+  const bx = 1062, sy = H / 2 - 50, ls = 52;
+  cfg.benefits.forEach((line, i) => {
+    const y = sy + i * ls;
+    cx.beginPath(); cx.arc(bx + 7, y, 3.5, 0, Math.PI * 2);
+    cx.fillStyle = 'rgba(255,255,255,0.7)'; cx.fill();
+    cx.fillStyle = '#ffffff';
+    cx.fillText(line, bx + 20, y);
+  });
+
+  /* ── 6. MADE IN GERMANY + German flag ── */
+  const by = H - 36;
+  cx.font = 'bold 22px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.textAlign = 'left'; cx.textBaseline = 'middle'; cx.fillStyle = '#ffffff';
   const mw = cx.measureText('MADE IN GERMANY').width;
-  const tx = W / 2 - (mw + 40) / 2;
+  const tx = W / 2 - (mw + 38) / 2;
   cx.fillText('MADE IN GERMANY', tx, by);
-  const fx = tx + mw + 10, fy = by - 9, bh = 6;
-  cx.fillStyle = '#000'; cx.fillRect(fx, fy,        30, bh);
-  cx.fillStyle = '#DD0000'; cx.fillRect(fx, fy + bh,   30, bh);
-  cx.fillStyle = '#FFCE00'; cx.fillRect(fx, fy + bh*2, 30, bh);
-  cx.strokeStyle = 'rgba(255,255,255,.25)'; cx.lineWidth = .5;
-  cx.strokeRect(fx, fy, 30, 18);
+  // German flag (3 bars: black, red, gold)
+  const fx = tx + mw + 8, fy = by - 9, fh = 6;
+  cx.fillStyle = '#000000'; cx.fillRect(fx, fy,          28, fh);
+  cx.fillStyle = '#DD0000'; cx.fillRect(fx, fy + fh,     28, fh);
+  cx.fillStyle = '#FFCE00'; cx.fillRect(fx, fy + fh * 2, 28, fh);
+  cx.strokeStyle = 'rgba(255,255,255,0.25)'; cx.lineWidth = 0.5;
+  cx.strokeRect(fx, fy, 28, 18);
 
   const tex = new THREE.CanvasTexture(cv);
   tex.encoding = THREE.sRGBEncoding;
@@ -664,63 +675,85 @@ function buildLabel(cfg) {
 
 /* ═══════════════════════════════════════════════════════════════
    BOTTLE FACTORY
-   One group per bottle: body (Lathe) + cap (Cylinder) +
-   5 grip ridges (Torus) + label cylinder + floor shadow.
-   To add a 4th bottle: push a new entry to bottleConfigs below.
+   One group per bottle:
+     body      — LatheGeometry (smooth shoulder + neck)
+     cap       — LatheGeometry dome (rounded top, like the reference)
+     ridges    — 5 thin Torus rings on the cylindrical part of the cap
+     label     — open CylinderGeometry with canvas texture,
+                 rotated Math.PI so the seam faces the back
+     shadow    — dark circle on the floor
    ═══════════════════════════════════════════════════════════════ */
 function createBottle(cfg) {
   const g = new THREE.Group();
   g.position.x = cfg.x;
 
-  /* Body — LatheGeometry profile (radius, y) */
+  /* ── Body — LatheGeometry (radius, y) ── */
   const pts = [
-    new THREE.Vector2(0.00, 0.00),
-    new THREE.Vector2(0.85, 0.00),
-    new THREE.Vector2(1.00, 0.18),
-    new THREE.Vector2(1.00, 3.60),
-    new THREE.Vector2(0.95, 3.75),
-    new THREE.Vector2(0.62, 4.05),
-    new THREE.Vector2(0.55, 4.15),
-    new THREE.Vector2(0.55, 4.35),
+    new THREE.Vector2(0.00, 0.00),   // bottom centre
+    new THREE.Vector2(0.84, 0.00),   // bottom edge
+    new THREE.Vector2(1.00, 0.20),   // lower bevel
+    new THREE.Vector2(1.00, 3.55),   // shoulder start (straight wall)
+    new THREE.Vector2(0.92, 3.78),   // mid shoulder
+    new THREE.Vector2(0.62, 4.08),   // neck start
+    new THREE.Vector2(0.55, 4.18),   // neck
+    new THREE.Vector2(0.55, 4.38),   // top of neck (cap sits here)
   ];
-  const body = new THREE.Mesh(
-    new THREE.LatheGeometry(pts, 96),
-    new THREE.MeshStandardMaterial({ color:0x0a0a0a, roughness:0.55, metalness:0.1, envMap, envMapIntensity:0.8 })
-  );
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: 0x0a0a0a, roughness: 0.55, metalness: 0.1,
+    envMap, envMapIntensity: 0.8,
+  });
+  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, 96), bodyMat);
   body.castShadow = body.receiveShadow = true;
   g.add(body);
 
-  /* Cap — glossy plastic */
-  const cap = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.62, 0.62, 0.45, 64),
-    new THREE.MeshStandardMaterial({ color:0x050505, roughness:0.15, metalness:0.3, envMap, envMapIntensity:1.0 })
-  );
-  cap.position.y = 4.575;
+  /* ── Cap — dome-shaped LatheGeometry (matches reference photo) ──
+     Profile: cylindrical skirt at bottom, curves into a rounded dome apex. */
+  const capPts = [
+    new THREE.Vector2(0.00, 0.48),   // apex centre
+    new THREE.Vector2(0.18, 0.47),   // dome top curve
+    new THREE.Vector2(0.48, 0.39),   // dome shoulder
+    new THREE.Vector2(0.62, 0.26),   // dome-to-cylinder join
+    new THREE.Vector2(0.62, 0.00),   // cylinder skirt bottom
+  ];
+  const capMat = new THREE.MeshStandardMaterial({
+    color: 0x060606, roughness: 0.12, metalness: 0.35,
+    envMap, envMapIntensity: 1.2,
+  });
+  const cap = new THREE.Mesh(new THREE.LatheGeometry(capPts, 64), capMat);
+  cap.position.y = 4.38;   // rest cap base on top of neck
   cap.castShadow = true;
   g.add(cap);
 
-  /* 5 grip ridges */
-  const ridgeMat = new THREE.MeshStandardMaterial({ color:0x080808, roughness:0.25, metalness:0.2, envMap });
+  /* ── Grip ridges — 5 thin torus rings on the cylindrical skirt ── */
+  const ridgeMat = new THREE.MeshStandardMaterial({
+    color: 0x090909, roughness: 0.22, metalness: 0.25, envMap,
+  });
   for (let i = 0; i < 5; i++) {
-    const ridge = new THREE.Mesh(new THREE.TorusGeometry(0.626, 0.018, 8, 64), ridgeMat);
-    ridge.position.y = 4.37 + i * 0.085;
+    const ridge = new THREE.Mesh(new THREE.TorusGeometry(0.626, 0.016, 8, 64), ridgeMat);
+    // skirt runs from y=4.38 to y=4.38+0.26=4.64; spread 5 ridges across it
+    ridge.position.y = 4.40 + i * 0.048;
     ridge.rotation.x = Math.PI / 2;
     ridge.castShadow = true;
     g.add(ridge);
   }
 
-  /* Label — transparent open cylinder, radius 1.005, y 0.4–3.5 */
-  const label = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.005, 1.005, 3.1, 96, 1, true),
-    new THREE.MeshBasicMaterial({ map:buildLabel(cfg), transparent:true, depthWrite:false, side:THREE.FrontSide })
-  );
-  label.position.y = 1.95;
+  /* ── Label — transparent open cylinder wrapped around body ──
+     Rotated Math.PI around Y so the UV seam faces the back;
+     canvas x=1024 (U=0.5) becomes the front face of the bottle. */
+  const labelTex = buildLabel(cfg);
+  const labelGeo = new THREE.CylinderGeometry(1.006, 1.006, 3.2, 96, 1, true);
+  const labelMat = new THREE.MeshBasicMaterial({
+    map: labelTex, transparent: true, depthWrite: false, side: THREE.FrontSide,
+  });
+  const label = new THREE.Mesh(labelGeo, labelMat);
+  label.position.y  = 1.95;      // centred between y=0.35 and y=3.55
+  label.rotation.y  = Math.PI;   // ← key fix: seam to back, design faces front
   g.add(label);
 
-  /* Floor shadow blob */
+  /* ── Floor shadow ── */
   const shadow = new THREE.Mesh(
     new THREE.CircleGeometry(1.3, 32),
-    new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.4, depthWrite:false })
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false })
   );
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.001;
