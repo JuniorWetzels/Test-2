@@ -74,7 +74,10 @@ body{background:#000;overflow:hidden;font-family:'Helvetica Neue',Helvetica,Aria
   const _end    = { type: 'end'    };
 
   THREE.OrbitControls = function (object, domElement) {
-    THREE.EventDispatcher.call(this);
+    // r128 uses ES6 class for EventDispatcher — don't call it as a function.
+    // The prototype chain below provides all dispatcher methods; _listeners
+    // is lazily initialised inside EventDispatcher.addEventListener itself.
+    this._listeners = {};
 
     const scope = this;
 
