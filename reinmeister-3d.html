@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reinmeister · 3D Product Viewer</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><text x='6' y='24' font-family='Arial' font-weight='bold' font-size='22' fill='white'>R</text></svg>">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+#c{display:block;position:fixed;top:0;left:0;width:100vw;height:100vh}
+#loading{position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:100;transition:opacity .8s ease}
+#loading.fade{opacity:0;pointer-events:none}
+#loading-text{color:rgba(255,255,255,.6);font-size:12px;letter-spacing:3px;text-transform:uppercase;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+#ui{position:fixed;inset:0;pointer-events:none;z-index:10}
+#brand{position:absolute;top:24px;left:28px}
+#b-eye{color:rgba(255,255,255,.5);font-size:10px;letter-spacing:4px;text-transform:uppercase;margin-bottom:4px}
+#b-title{color:#fff;font-size:28px;font-weight:700;line-height:1;margin-bottom:5px}
+#b-sub{color:rgba(255,255,255,.4);font-size:11px;letter-spacing:6px;text-transform:uppercase}
+#live{position:absolute;top:24px;right:28px;display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.08);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:7px 14px 7px 10px}
+#dot{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e;animation:blink 1.8s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+#live-txt{color:rgba(255,255,255,.85);font-size:11px;font-weight:600;letter-spacing:2px}
+#controls{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);display:flex;gap:10px;pointer-events:all}
+.btn{background:rgba(255,255,255,.07);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.14);color:rgba(255,255,255,.85);font-family:inherit;font-size:11px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;padding:9px 18px;border-radius:999px;cursor:pointer;transition:background .2s,border-color .2s,color .2s;white-space:nowrap}
+.btn:hover{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.3);color:#fff}
+.btn.on{background:rgba(34,197,94,.18);border-color:rgba(34,197,94,.5);color:#4ade80}
+#hint{position:absolute;bottom:28px;left:28px;color:rgba(255,255,255,.32);font-size:10px;letter-spacing:2px;text-transform:uppercase}
+#err{position:fixed;inset:0;background:#000;display:none;align-items:center;justify-content:center;z-index:200;flex-direction:column;gap:12px}
+#err p{color:rgba(255,80,80,.9);font-size:13px;letter-spacing:1px;max-width:480px;text-align:center;line-height:1.7}
+@media(max-width:700px){
+  #b-title{font-size:20px}#b-eye{font-size:9px;letter-spacing:2px}#b-sub{font-size:9px;letter-spacing:3px}
+  #controls{gap:6px;bottom:18px}.btn{font-size:10px;padding:8px 12px}
+  #hint{display:none}#brand{top:16px;left:16px}#live{top:16px;right:16px}
+}
+</style>
+</head>
+<body>
+
+<div id="loading"><div id="loading-text">Loading Scene</div></div>
+<div id="err"><p id="err-msg"></p></div>
+
+<div id="ui">
+  <div id="brand">
+    <div id="b-eye">Pro Line · 3 Product Concept</div>
+    <div id="b-title">Reinmeister.</div>
+    <div id="b-sub">Professional · Made in Germany</div>
+  </div>
+  <div id="live"><div id="dot"></div><div id="live-txt">LIVE 3D</div></div>
+  <div id="controls">
+    <button class="btn on" id="btn-rot">Auto Rotate</button>
+    <button class="btn"    id="btn-rst">Reset View</button>
+    <button class="btn"    id="btn-frt">Front</button>
+    <button class="btn"    id="btn-cls">Close-Up</button>
+  </div>
+  <div id="hint">Drag · Scroll · Tap</div>
+</div>
+
+<canvas id="c"></canvas>
+
+<!-- Three.js r128 from cdnjs -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+/* ─── Inline OrbitControls (r128 compatible) ──────────────────
+   Self-contained so no second CDN request is needed.
+   ─────────────────────────────────────────────────────────── */
+(function () {
+  'use strict';
+
+  const _change = { type: 'change' };
+  const _start  = { type: 'start'  };
+  const _end    = { type: 'end'    };
+
+  THREE.OrbitControls = function (object, domElement) {
+    // r128 uses ES6 class for EventDispatcher — don't call it as a function.
+    // The prototype chain below provides all dispatcher methods; _listeners
+    // is lazily initialised inside EventDispatcher.addEventListener itself.
+    this._listeners = {};
+
+    const scope = this;
+
+    this.object     = object;
+    this.domElement = domElement;
+    this.domElement.style.touchAction = 'none';
+
+    this.enabled       = true;
+    this.target        = new THREE.Vector3();
+    this.minDistance   = 0;
+    this.maxDistance   = Infinity;
+    this.minZoom       = 0;
+    this.maxZoom       = Infinity;
+    this.minPolarAngle = 0;
+    this.maxPolarAngle = Math.PI;
+    this.minAzimuthAngle = -Infinity;
+    this.maxAzimuthAngle =  Infinity;
+    this.enableDamping   = false;
+    this.dampingFactor   = 0.05;
+    this.enableZoom      = true;
+    this.zoomSpeed       = 1.0;
+    this.enableRotate    = true;
+    this.rotateSpeed     = 1.0;
+    this.enablePan       = true;
+    this.panSpeed        = 1.0;
+    this.screenSpacePanning = true;
+    this.keyPanSpeed     = 7.0;
+    this.autoRotate      = false;
+    this.autoRotateSpeed = 2.0;
+    this.mouseButtons    = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+    this.touches         = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+
+    this.target0   = this.target.clone();
+    this.position0 = this.object.position.clone();
+    this.zoom0     = this.object.zoom;
+
+    /* ── private state ── */
+    const EPS   = 0.000001;
+    const twoPI = 2 * Math.PI;
+    const STATE = { NONE:-1, ROTATE:0, DOLLY:1, PAN:2,
+                    TOUCH_ROTATE:3, TOUCH_PAN:4, TOUCH_DOLLY_PAN:5, TOUCH_DOLLY_ROTATE:6 };
+    let state = STATE.NONE;
+
+    const spherical      = new THREE.Spherical();
+    const sphericalDelta = new THREE.Spherical();
+    let   scale = 1;
+    const panOffset = new THREE.Vector3();
+    let   zoomChanged = false;
+
+    const rotateStart = new THREE.Vector2();
+    const rotateEnd   = new THREE.Vector2();
+    const rotateDelta = new THREE.Vector2();
+    const panStart    = new THREE.Vector2();
+    const panEnd      = new THREE.Vector2();
+    const panDelta    = new THREE.Vector2();
+    const dollyStart  = new THREE.Vector2();
+    const dollyEnd    = new THREE.Vector2();
+    const dollyDelta  = new THREE.Vector2();
+    const pointers    = [];
+    const pointerPos  = {};
+
+    /* ── public methods ── */
+    this.saveState = function () {
+      scope.target0.copy(scope.target);
+      scope.position0.copy(scope.object.position);
+      scope.zoom0 = scope.object.zoom;
+    };
+
+    this.reset = function () {
+      scope.target.copy(scope.target0);
+      scope.object.position.copy(scope.position0);
+      scope.object.zoom = scope.zoom0;
+      scope.object.updateProjectionMatrix();
+      scope.dispatchEvent(_change);
+      scope.update();
+      state = STATE.NONE;
+    };
+
+    /* update() ─ call once per frame */
+    const _offset       = new THREE.Vector3();
+    const _quat         = new THREE.Quaternion().setFromUnitVectors(object.up, new THREE.Vector3(0, 1, 0));
+    const _quatInverse  = _quat.clone().invert();
+    const _lastPos      = new THREE.Vector3();
+    const _lastQuat     = new THREE.Quaternion();
+
+    this.update = function () {
+      const position = scope.object.position;
+      _offset.copy(position).sub(scope.target);
+      _offset.applyQuaternion(_quat);
+      spherical.setFromVector3(_offset);
+
+      if (scope.autoRotate && state === STATE.NONE) {
+        rotateLeft(2 * Math.PI / 60 / 60 * scope.autoRotateSpeed);
+      }
+
+      if (scope.enableDamping) {
+        spherical.theta += sphericalDelta.theta * scope.dampingFactor;
+        spherical.phi   += sphericalDelta.phi   * scope.dampingFactor;
+      } else {
+        spherical.theta += sphericalDelta.theta;
+        spherical.phi   += sphericalDelta.phi;
+      }
+
+      let mn = scope.minAzimuthAngle, mx = scope.maxAzimuthAngle;
+      if (isFinite(mn) && isFinite(mx)) {
+        if (mn < -Math.PI) mn += twoPI; else if (mn > Math.PI) mn -= twoPI;
+        if (mx < -Math.PI) mx += twoPI; else if (mx > Math.PI) mx -= twoPI;
+        spherical.theta = mn <= mx
+          ? Math.max(mn, Math.min(mx, spherical.theta))
+          : (spherical.theta > (mn + mx) / 2 ? Math.max(mn, spherical.theta) : Math.min(mx, spherical.theta));
+      }
+
+      spherical.phi = Math.max(scope.minPolarAngle, Math.min(scope.maxPolarAngle, spherical.phi));
+      spherical.makeSafe();
+      spherical.radius *= scale;
+      spherical.radius  = Math.max(scope.minDistance, Math.min(scope.maxDistance, spherical.radius));
+
+      if (scope.enableDamping) scope.target.addScaledVector(panOffset, scope.dampingFactor);
+      else                     scope.target.add(panOffset);
+
+      _offset.setFromSpherical(spherical);
+      _offset.applyQuaternion(_quatInverse);
+      position.copy(scope.target).add(_offset);
+      scope.object.lookAt(scope.target);
+
+      if (scope.enableDamping) {
+        sphericalDelta.theta *= (1 - scope.dampingFactor);
+        sphericalDelta.phi   *= (1 - scope.dampingFactor);
+        panOffset.multiplyScalar(1 - scope.dampingFactor);
+      } else {
+        sphericalDelta.set(0, 0, 0);
+        panOffset.set(0, 0, 0);
+      }
+      scale = 1;
+
+      if (zoomChanged ||
+          _lastPos.distanceToSquared(scope.object.position) > EPS ||
+          8 * (1 - _lastQuat.dot(scope.object.quaternion)) > EPS) {
+        scope.dispatchEvent(_change);
+        _lastPos.copy(scope.object.position);
+        _lastQuat.copy(scope.object.quaternion);
+        zoomChanged = false;
+        return true;
+      }
+      return false;
+    };
+
+    this.dispose = function () {
+      domElement.removeEventListener('contextmenu', onContextMenu);
+      domElement.removeEventListener('pointerdown',  onPointerDown);
+      domElement.removeEventListener('pointercancel',onPointerCancel);
+      domElement.removeEventListener('wheel',        onMouseWheel);
+    };
+
+    /* ── internal helpers ── */
+    function rotateLeft (a) { sphericalDelta.theta -= a; }
+    function rotateUp   (a) { sphericalDelta.phi   -= a; }
+
+    function getZoomScale () { return Math.pow(0.95, scope.zoomSpeed); }
+
+    function dollyIn  (s) { if (scope.object.isPerspectiveCamera) scale *= s; }
+    function dollyOut (s) { if (scope.object.isPerspectiveCamera) scale /= s; }
+
+    const _panV = new THREE.Vector3();
+    function panLeft (dist, mat) {
+      _panV.setFromMatrixColumn(mat, 0).multiplyScalar(-dist);
+      panOffset.add(_panV);
+    }
+    function panUp (dist, mat) {
+      if (scope.screenSpacePanning) _panV.setFromMatrixColumn(mat, 1);
+      else { _panV.setFromMatrixColumn(mat, 0); _panV.crossVectors(scope.object.up, _panV); }
+      _panV.multiplyScalar(dist);
+      panOffset.add(_panV);
+    }
+    const _panOff = new THREE.Vector3();
+    function doPan (dx, dy) {
+      const el = scope.domElement;
+      if (scope.object.isPerspectiveCamera) {
+        _panOff.copy(scope.object.position).sub(scope.target);
+        let td = _panOff.length() * Math.tan(scope.object.fov / 2 * Math.PI / 180);
+        panLeft(2 * dx * td / el.clientHeight, scope.object.matrix);
+        panUp  (2 * dy * td / el.clientHeight, scope.object.matrix);
+      }
+    }
+
+    /* ── mouse handlers ── */
+    function onMouseDown (e) {
+      let action;
+      if      (e.button === 0) action = scope.mouseButtons.LEFT;
+      else if (e.button === 1) action = scope.mouseButtons.MIDDLE;
+      else if (e.button === 2) action = scope.mouseButtons.RIGHT;
+      else return;
+
+      if (action === THREE.MOUSE.DOLLY) {
+        if (!scope.enableZoom) return;
+        dollyStart.set(e.clientX, e.clientY); state = STATE.DOLLY;
+      } else if (action === THREE.MOUSE.ROTATE) {
+        if (e.ctrlKey || e.metaKey || e.shiftKey) {
+          if (!scope.enablePan) return;
+          panStart.set(e.clientX, e.clientY); state = STATE.PAN;
+        } else {
+          if (!scope.enableRotate) return;
+          rotateStart.set(e.clientX, e.clientY); state = STATE.ROTATE;
+        }
+      } else if (action === THREE.MOUSE.PAN) {
+        if (e.ctrlKey || e.metaKey || e.shiftKey) {
+          if (!scope.enableRotate) return;
+          rotateStart.set(e.clientX, e.clientY); state = STATE.ROTATE;
+        } else {
+          if (!scope.enablePan) return;
+          panStart.set(e.clientX, e.clientY); state = STATE.PAN;
+        }
+      }
+      if (state !== STATE.NONE) scope.dispatchEvent(_start);
+    }
+
+    function onMouseMove (e) {
+      if (!scope.enabled) return;
+      if (state === STATE.ROTATE) {
+        if (!scope.enableRotate) return;
+        rotateEnd.set(e.clientX, e.clientY);
+        rotateDelta.subVectors(rotateEnd, rotateStart).multiplyScalar(scope.rotateSpeed);
+        const el = scope.domElement;
+        rotateLeft(2 * Math.PI * rotateDelta.x / el.clientHeight);
+        rotateUp  (2 * Math.PI * rotateDelta.y / el.clientHeight);
+        rotateStart.copy(rotateEnd);
+        scope.update();
+      } else if (state === STATE.DOLLY) {
+        if (!scope.enableZoom) return;
+        dollyEnd.set(e.clientX, e.clientY);
+        dollyDelta.subVectors(dollyEnd, dollyStart);
+        if (dollyDelta.y > 0) dollyOut(getZoomScale());
+        else if (dollyDelta.y < 0) dollyIn(getZoomScale());
+        dollyStart.copy(dollyEnd);
+        scope.update();
+      } else if (state === STATE.PAN) {
+        if (!scope.enablePan) return;
+        panEnd.set(e.clientX, e.clientY);
+        panDelta.subVectors(panEnd, panStart).multiplyScalar(scope.panSpeed);
+        doPan(panDelta.x, panDelta.y);
+        panStart.copy(panEnd);
+        scope.update();
+      }
+    }
+
+    function onMouseWheel (e) {
+      if (!scope.enabled || !scope.enableZoom) return;
+      e.preventDefault();
+      scope.dispatchEvent(_start);
+      if      (e.deltaY < 0) dollyIn (getZoomScale());
+      else if (e.deltaY > 0) dollyOut(getZoomScale());
+      scope.update();
+      scope.dispatchEvent(_end);
+    }
+
+    /* ── touch helpers ── */
+    function touchRotateStart () {
+      if (pointers.length === 1) rotateStart.set(pointers[0].pageX, pointers[0].pageY);
+      else rotateStart.set((pointers[0].pageX+pointers[1].pageX)/2, (pointers[0].pageY+pointers[1].pageY)/2);
+    }
+    function touchPanStart () {
+      if (pointers.length === 1) panStart.set(pointers[0].pageX, pointers[0].pageY);
+      else panStart.set((pointers[0].pageX+pointers[1].pageX)/2, (pointers[0].pageY+pointers[1].pageY)/2);
+    }
+    function touchDollyStart () {
+      const dx = pointers[0].pageX-pointers[1].pageX, dy = pointers[0].pageY-pointers[1].pageY;
+      dollyStart.set(0, Math.sqrt(dx*dx+dy*dy));
+    }
+    function secondPointer (e) {
+      const p = (e.pointerId===pointers[0].pointerId) ? pointers[1] : pointers[0];
+      return pointerPos[p.pointerId];
+    }
+    function onTouchStart (e) {
+      trackPointer(e);
+      if (pointers.length === 1) {
+        if (scope.touches.ONE === THREE.TOUCH.ROTATE) { touchRotateStart(); state = STATE.TOUCH_ROTATE; }
+        else if (scope.touches.ONE === THREE.TOUCH.PAN) { touchPanStart(); state = STATE.TOUCH_PAN; }
+      } else if (pointers.length === 2) {
+        if (scope.touches.TWO === THREE.TOUCH.DOLLY_PAN) { touchDollyStart(); touchPanStart(); state = STATE.TOUCH_DOLLY_PAN; }
+        else if (scope.touches.TWO === THREE.TOUCH.DOLLY_ROTATE) { touchDollyStart(); touchRotateStart(); state = STATE.TOUCH_DOLLY_ROTATE; }
+      }
+      if (state !== STATE.NONE) scope.dispatchEvent(_start);
+    }
+    function onTouchMove (e) {
+      trackPointer(e);
+      if (state === STATE.TOUCH_ROTATE || state === STATE.TOUCH_DOLLY_ROTATE) {
+        if (pointers.length === 1) rotateEnd.set(e.pageX, e.pageY);
+        else { const s=secondPointer(e); rotateEnd.set((e.pageX+s.x)/2,(e.pageY+s.y)/2); }
+        rotateDelta.subVectors(rotateEnd,rotateStart).multiplyScalar(scope.rotateSpeed);
+        const el=scope.domElement;
+        rotateLeft(2*Math.PI*rotateDelta.x/el.clientHeight);
+        rotateUp  (2*Math.PI*rotateDelta.y/el.clientHeight);
+        rotateStart.copy(rotateEnd);
+      }
+      if (state === STATE.TOUCH_PAN || state === STATE.TOUCH_DOLLY_PAN) {
+        if (pointers.length === 1) panEnd.set(e.pageX, e.pageY);
+        else { const s=secondPointer(e); panEnd.set((e.pageX+s.x)/2,(e.pageY+s.y)/2); }
+        panDelta.subVectors(panEnd,panStart).multiplyScalar(scope.panSpeed);
+        doPan(panDelta.x,panDelta.y); panStart.copy(panEnd);
+      }
+      if (state === STATE.TOUCH_DOLLY_PAN || state === STATE.TOUCH_DOLLY_ROTATE) {
+        const s=secondPointer(e);
+        const dx=e.pageX-s.x, dy=e.pageY-s.y;
+        dollyEnd.set(0,Math.sqrt(dx*dx+dy*dy));
+        dollyDelta.set(0,Math.pow(dollyEnd.y/dollyStart.y,scope.zoomSpeed));
+        dollyOut(dollyDelta.y); dollyStart.copy(dollyEnd);
+      }
+      scope.update();
+    }
+
+    /* ── pointer dispatcher ── */
+    function onPointerDown (e) {
+      if (!scope.enabled) return;
+      if (pointers.length === 0) {
+        domElement.setPointerCapture(e.pointerId);
+        domElement.addEventListener('pointermove', onPointerMove);
+        domElement.addEventListener('pointerup',   onPointerUp);
+      }
+      addPtr(e);
+      if (e.pointerType === 'touch') onTouchStart(e);
+      else onMouseDown(e);
+    }
+    function onPointerMove (e) {
+      if (!scope.enabled) return;
+      if (e.pointerType === 'touch') onTouchMove(e);
+      else onMouseMove(e);
+    }
+    function onPointerUp (e) {
+      removePtr(e);
+      if (pointers.length === 0) {
+        domElement.releasePointerCapture(e.pointerId);
+        domElement.removeEventListener('pointermove', onPointerMove);
+        domElement.removeEventListener('pointerup',   onPointerUp);
+      }
+      scope.dispatchEvent(_end);
+      state = STATE.NONE;
+    }
+    function onPointerCancel (e) { removePtr(e); }
+    function onContextMenu (e) { if (scope.enabled) e.preventDefault(); }
+
+    function addPtr (e) { pointers.push(e); }
+    function removePtr (e) {
+      delete pointerPos[e.pointerId];
+      for (let i=0;i<pointers.length;i++) { if (pointers[i].pointerId===e.pointerId){ pointers.splice(i,1); return; } }
+    }
+    function trackPointer (e) {
+      let p = pointerPos[e.pointerId];
+      if (!p) { p = new THREE.Vector2(); pointerPos[e.pointerId] = p; }
+      p.set(e.pageX, e.pageY);
+    }
+
+    domElement.addEventListener('contextmenu', onContextMenu);
+    domElement.addEventListener('pointerdown',  onPointerDown);
+    domElement.addEventListener('pointercancel',onPointerCancel);
+    domElement.addEventListener('wheel', onMouseWheel, { passive: false });
+
+    this.update();
+  };
+
+  THREE.OrbitControls.prototype = Object.create(THREE.EventDispatcher.prototype);
+  THREE.OrbitControls.prototype.constructor = THREE.OrbitControls;
+}());
+
+/* ═══════════════════════════════════════════════════════════════
+   REINMEISTER 3D PRODUCT VIEWER
+   ═══════════════════════════════════════════════════════════════ */
+console.log('Reinmeister 3D Viewer · drag to rotate');
+
+const _loading = document.getElementById('loading');
+const _err     = document.getElementById('err');
+
+function showError(msg) {
+  _loading.style.display = 'none';
+  _err.style.display     = 'flex';
+  document.getElementById('err-msg').textContent = msg;
+}
+
+// Safety-net: remove loading screen after 8 s regardless
+const _loadTimeout = setTimeout(() => {
+  _loading.classList.add('fade');
+  setTimeout(() => _loading.style.display = 'none', 850);
+}, 8000);
+
+try {
+
+// ── Renderer ─────────────────────────────────────────────────
+const canvas   = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled   = true;
+renderer.shadowMap.type      = THREE.PCFSoftShadowMap;
+renderer.toneMapping         = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+renderer.outputEncoding      = THREE.sRGBEncoding;
+
+// ── Scene ─────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000000);
+
+// ── Camera ────────────────────────────────────────────────────
+const camera = new THREE.PerspectiveCamera(32, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 2.5, 13);
+
+// ── Controls ──────────────────────────────────────────────────
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.target.set(0, 1.8, 0);
+controls.enableDamping   = true;
+controls.dampingFactor   = 0.05;
+controls.minDistance     = 4;
+controls.maxDistance     = 24;
+controls.minPolarAngle   = 0.3;
+controls.maxPolarAngle   = Math.PI / 2 + 0.3;
+controls.autoRotate      = true;
+controls.autoRotateSpeed = 0.6;
+controls.update();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   PROCEDURAL ENVIRONMENT MAP
+   A small canvas gradient converted via PMREMGenerator.
+   Provides realistic chrome/metallic reflections — no HDRI needed.
+   ═══════════════════════════════════════════════════════════════ */
+function buildEnvMap() {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+  const W = 1024, H = 512;
+  const ec = document.createElement('canvas');
+  ec.width = W; ec.height = H;
+  const ex = ec.getContext('2d');
+
+  const bg = ex.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0,   '#1a1a2e');
+  bg.addColorStop(0.3, '#111122');
+  bg.addColorStop(1,   '#000005');
+  ex.fillStyle = bg; ex.fillRect(0, 0, W, H);
+
+  const k = ex.createRadialGradient(W*.35, H*.2, 0, W*.35, H*.2, W*.28);
+  k.addColorStop(0,   'rgba(220,230,255,.55)');
+  k.addColorStop(.5,  'rgba(160,180,230,.18)');
+  k.addColorStop(1,   'rgba(0,0,0,0)');
+  ex.fillStyle = k; ex.fillRect(0, 0, W, H);
+
+  const r = ex.createRadialGradient(W*.9, H*.35, 0, W*.9, H*.35, W*.22);
+  r.addColorStop(0, 'rgba(255,180,100,.35)');
+  r.addColorStop(1, 'rgba(0,0,0,0)');
+  ex.fillStyle = r; ex.fillRect(0, 0, W, H);
+
+  const envTex = new THREE.CanvasTexture(ec);
+  envTex.mapping  = THREE.EquirectangularReflectionMapping;
+  envTex.encoding = THREE.sRGBEncoding;
+  const envMap = pmrem.fromEquirectangular(envTex).texture;
+  pmrem.dispose(); envTex.dispose();
+  return envMap;
+}
+
+const envMap = buildEnvMap();
+scene.environment = envMap;
+
+/* ═══════════════════════════════════════════════════════════════
+   LIGHTING
+   ═══════════════════════════════════════════════════════════════ */
+scene.add(new THREE.HemisphereLight(0xddddff, 0x222244, 0.4));
+
+const key = new THREE.DirectionalLight(0xffffff, 1.4);
+key.position.set(5, 10, 6);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.bias = -0.0001;
+key.shadow.camera.near = 1; key.shadow.camera.far = 40;
+key.shadow.camera.left = -10; key.shadow.camera.right = 10;
+key.shadow.camera.top  =  10; key.shadow.camera.bottom = -10;
+scene.add(key);
+
+const fill = new THREE.DirectionalLight(0xaaccff, 0.5);
+fill.position.set(-7, 4, 3);
+scene.add(fill);
+
+const rim = new THREE.DirectionalLight(0xffaa66, 0.7);
+rim.position.set(-2, 5, -8);
+scene.add(rim);
+
+const topPt = new THREE.PointLight(0xffffff, 0.5, 12);
+topPt.position.set(0, 8, 4);
+scene.add(topPt);
+
+/* ═══════════════════════════════════════════════════════════════
+   LABEL TEXTURE BUILDER  (2048 × 1024 canvas)
+
+   The label mesh is rotated Math.PI around Y so the texture seam
+   faces the BACK of the bottle. With that rotation:
+     canvas x = 1024  →  front face (directly facing camera)
+     canvas x = 512   →  viewer's left side
+     canvas x = 1536  →  viewer's right side
+     canvas x = 0/2048→  back (seam, hidden)
+
+   Layout centered around x = 1024:
+     x ≈ 580         : product line + subtitle (vertical, viewer's left edge)
+     x ≈ 820         : "Reinmeister®" hero (vertical 160 px, viewer's left-centre)
+     x ≈ 1040        : thin divider
+     x ≈ 1060–1450   : benefits bullets (viewer's right)
+     x = 1024, lower : giant chrome number (drawn first, acts as background)
+     x = 1024, bottom: MADE IN GERMANY
+   ═══════════════════════════════════════════════════════════════ */
+function buildLabel(cfg) {
+  const W = 2048, H = 1024;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const cx = cv.getContext('2d');
+  cx.clearRect(0, 0, W, H);
+
+  /* ── 1. HERO NUMBER (drawn first → acts as background layer) ── */
+  const nx = 1024, ny = H * 0.76;
+  const ng = cx.createLinearGradient(nx, ny - 260, nx, ny + 260);
+  ng.addColorStop(0,   '#ffffff');
+  ng.addColorStop(0.35,'#d8d8d8');
+  ng.addColorStop(1,   '#808080');
+  cx.save();
+  cx.font = 'bold 560px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.textAlign = 'center'; cx.textBaseline = 'middle';
+  cx.shadowColor = 'rgba(0,0,0,0.45)'; cx.shadowOffsetY = 10; cx.shadowBlur = 18;
+  cx.fillStyle = ng;
+  cx.fillText(cfg.heroNumber, nx, ny);
+  cx.restore();
+
+  /* ── 2. "Reinmeister®" brand hero — vertical, 160 px bold ── */
+  cx.save();
+  cx.translate(820, H / 2 + 18);
+  cx.rotate(-Math.PI / 2);
+  cx.textAlign = 'center'; cx.textBaseline = 'alphabetic';
+  cx.font = 'bold 160px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.fillStyle = '#ffffff';
+  cx.fillText('Reinmeister', 0, 0);
+  // ® superscript at the top end of the rotated word
+  const hw = cx.measureText('Reinmeister').width / 2;
+  cx.font = 'bold 54px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.fillText('®', hw + 24, -106);
+  cx.restore();
+
+  /* ── 3. Product line + subtitle (vertical, viewer's far left) ── */
+  cx.save();
+  cx.translate(580, H / 2);
+  cx.rotate(-Math.PI / 2);
+  cx.textAlign = 'center'; cx.textBaseline = 'alphabetic';
+  cx.font = 'italic 26px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.fillStyle = '#ffffff';
+  cx.fillText(cfg.productLine, 0, -16);
+  cx.strokeStyle = 'rgba(255,255,255,0.35)'; cx.lineWidth = 1;
+  cx.beginPath(); cx.moveTo(-160, -5); cx.lineTo(160, -5); cx.stroke();
+  cx.font = '26px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.fillText(cfg.subtitle, 0, 20);
+  cx.restore();
+
+  /* ── 4. Thin vertical divider ── */
+  cx.strokeStyle = 'rgba(255,255,255,0.55)'; cx.lineWidth = 1.5;
+  cx.beginPath(); cx.moveTo(1042, H * 0.1); cx.lineTo(1042, H * 0.9); cx.stroke();
+
+  /* ── 5. Benefits bullets ── */
+  cx.font = '30px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.textAlign = 'left'; cx.textBaseline = 'middle'; cx.fillStyle = '#ffffff';
+  const bx = 1062, sy = H / 2 - 50, ls = 52;
+  cfg.benefits.forEach((line, i) => {
+    const y = sy + i * ls;
+    cx.beginPath(); cx.arc(bx + 7, y, 3.5, 0, Math.PI * 2);
+    cx.fillStyle = 'rgba(255,255,255,0.7)'; cx.fill();
+    cx.fillStyle = '#ffffff';
+    cx.fillText(line, bx + 20, y);
+  });
+
+  /* ── 6. MADE IN GERMANY + German flag ── */
+  const by = H - 36;
+  cx.font = 'bold 22px "Helvetica Neue",Helvetica,Arial,sans-serif';
+  cx.textAlign = 'left'; cx.textBaseline = 'middle'; cx.fillStyle = '#ffffff';
+  const mw = cx.measureText('MADE IN GERMANY').width;
+  const tx = W / 2 - (mw + 38) / 2;
+  cx.fillText('MADE IN GERMANY', tx, by);
+  // German flag (3 bars: black, red, gold)
+  const fx = tx + mw + 8, fy = by - 9, fh = 6;
+  cx.fillStyle = '#000000'; cx.fillRect(fx, fy,          28, fh);
+  cx.fillStyle = '#DD0000'; cx.fillRect(fx, fy + fh,     28, fh);
+  cx.fillStyle = '#FFCE00'; cx.fillRect(fx, fy + fh * 2, 28, fh);
+  cx.strokeStyle = 'rgba(255,255,255,0.25)'; cx.lineWidth = 0.5;
+  cx.strokeRect(fx, fy, 28, 18);
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.encoding = THREE.sRGBEncoding;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BOTTLE FACTORY
+   One group per bottle:
+     body      — LatheGeometry (smooth shoulder + neck)
+     cap       — LatheGeometry dome (rounded top, like the reference)
+     ridges    — 5 thin Torus rings on the cylindrical part of the cap
+     label     — open CylinderGeometry with canvas texture,
+                 rotated Math.PI so the seam faces the back
+     shadow    — dark circle on the floor
+   ═══════════════════════════════════════════════════════════════ */
+function createBottle(cfg) {
+  const g = new THREE.Group();
+  g.position.x = cfg.x;
+
+  /* ── Body — LatheGeometry (radius, y) ── */
+  const pts = [
+    new THREE.Vector2(0.00, 0.00),   // bottom centre
+    new THREE.Vector2(0.84, 0.00),   // bottom edge
+    new THREE.Vector2(1.00, 0.20),   // lower bevel
+    new THREE.Vector2(1.00, 3.55),   // shoulder start (straight wall)
+    new THREE.Vector2(0.92, 3.78),   // mid shoulder
+    new THREE.Vector2(0.62, 4.08),   // neck start
+    new THREE.Vector2(0.55, 4.18),   // neck
+    new THREE.Vector2(0.55, 4.38),   // top of neck (cap sits here)
+  ];
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: 0x0a0a0a, roughness: 0.55, metalness: 0.1,
+    envMap, envMapIntensity: 0.8,
+  });
+  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, 96), bodyMat);
+  body.castShadow = body.receiveShadow = true;
+  g.add(body);
+
+  /* ── Cap — dome-shaped LatheGeometry (matches reference photo) ──
+     Profile: cylindrical skirt at bottom, curves into a rounded dome apex. */
+  const capPts = [
+    new THREE.Vector2(0.00, 0.48),   // apex centre
+    new THREE.Vector2(0.18, 0.47),   // dome top curve
+    new THREE.Vector2(0.48, 0.39),   // dome shoulder
+    new THREE.Vector2(0.62, 0.26),   // dome-to-cylinder join
+    new THREE.Vector2(0.62, 0.00),   // cylinder skirt bottom
+  ];
+  const capMat = new THREE.MeshStandardMaterial({
+    color: 0x060606, roughness: 0.12, metalness: 0.35,
+    envMap, envMapIntensity: 1.2,
+  });
+  const cap = new THREE.Mesh(new THREE.LatheGeometry(capPts, 64), capMat);
+  cap.position.y = 4.38;   // rest cap base on top of neck
+  cap.castShadow = true;
+  g.add(cap);
+
+  /* ── Grip ridges — 5 thin torus rings on the cylindrical skirt ── */
+  const ridgeMat = new THREE.MeshStandardMaterial({
+    color: 0x090909, roughness: 0.22, metalness: 0.25, envMap,
+  });
+  for (let i = 0; i < 5; i++) {
+    const ridge = new THREE.Mesh(new THREE.TorusGeometry(0.626, 0.016, 8, 64), ridgeMat);
+    // skirt runs from y=4.38 to y=4.38+0.26=4.64; spread 5 ridges across it
+    ridge.position.y = 4.40 + i * 0.048;
+    ridge.rotation.x = Math.PI / 2;
+    ridge.castShadow = true;
+    g.add(ridge);
+  }
+
+  /* ── Label — transparent open cylinder wrapped around body ──
+     Rotated Math.PI around Y so the UV seam faces the back;
+     canvas x=1024 (U=0.5) becomes the front face of the bottle. */
+  const labelTex = buildLabel(cfg);
+  const labelGeo = new THREE.CylinderGeometry(1.006, 1.006, 3.2, 96, 1, true);
+  const labelMat = new THREE.MeshBasicMaterial({
+    map: labelTex, transparent: true, depthWrite: false, side: THREE.FrontSide,
+  });
+  const label = new THREE.Mesh(labelGeo, labelMat);
+  label.position.y  = 1.95;      // centred between y=0.35 and y=3.55
+  label.rotation.y  = Math.PI;   // ← key fix: seam to back, design faces front
+  g.add(label);
+
+  /* ── Floor shadow ── */
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(1.3, 32),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false })
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.001;
+  g.add(shadow);
+
+  return g;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BOTTLE DATA
+   Add a 4th entry (x: 5.6 or −5.6) to add another bottle.
+   ═══════════════════════════════════════════════════════════════ */
+const bottleConfigs = [
+  { x:-2.8, productLine:'Universal / Allzweck',  subtitle:'Professional Cleaner',   benefits:['Removes dirt','Streak-free finish','Safe on all surfaces'], heroNumber:'1' },
+  { x: 0,   productLine:'Sanitar / Bad-Reiniger', subtitle:'Bathroom Acid',          benefits:['Removes limescale','Kills bacteria','Restores shine'],       heroNumber:'2' },
+  { x: 2.8, productLine:'Kraft / Entfetter',      subtitle:'Heavy Duty Degreaser',   benefits:['Cuts through grease','Industrial strength','Concentrate 1:20'], heroNumber:'3' },
+];
+bottleConfigs.forEach(cfg => scene.add(createBottle(cfg)));
+
+/* ═══════════════════════════════════════════════════════════════
+   UI
+   ═══════════════════════════════════════════════════════════════ */
+const INIT_POS    = new THREE.Vector3(0, 2.5, 13);
+const INIT_TARGET = new THREE.Vector3(0, 1.8,  0);
+
+function animateTo(toPos, toTarget, ms = 900) {
+  const fp = camera.position.clone(), ft = controls.target.clone(), t0 = performance.now();
+  (function step(now) {
+    const raw = Math.min((now - t0) / ms, 1);
+    const e   = raw < .5 ? 2*raw*raw : -1 + (4 - 2*raw)*raw;
+    camera.position.lerpVectors(fp, toPos, e);
+    controls.target.lerpVectors(ft, toTarget, e);
+    controls.update();
+    if (raw < 1) requestAnimationFrame(step);
+  })(t0);
+}
+
+const btnRot = document.getElementById('btn-rot');
+btnRot.addEventListener('click', () => {
+  controls.autoRotate = !controls.autoRotate;
+  btnRot.classList.toggle('on', controls.autoRotate);
+});
+document.getElementById('btn-rst').addEventListener('click', () => animateTo(INIT_POS, INIT_TARGET));
+document.getElementById('btn-frt').addEventListener('click', () => animateTo(new THREE.Vector3(0,2.5,13), new THREE.Vector3(0,1.8,0)));
+document.getElementById('btn-cls').addEventListener('click', () => animateTo(new THREE.Vector3(0,2.0,6),  new THREE.Vector3(0,2.0,0)));
+
+/* ═══════════════════════════════════════════════════════════════
+   RENDER LOOP
+   ═══════════════════════════════════════════════════════════════ */
+let firstFrame = true;
+
+(function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+  if (firstFrame) {
+    firstFrame = false;
+    clearTimeout(_loadTimeout);
+    setTimeout(() => {
+      _loading.classList.add('fade');
+      setTimeout(() => _loading.style.display = 'none', 850);
+    }, 200);
+  }
+})();
+
+} catch (e) {
+  showError('Scene failed to initialise: ' + e.message);
+  console.error(e);
+}
+</script>
+</body>
+</html>
